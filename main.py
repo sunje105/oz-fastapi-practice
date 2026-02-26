@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Path, HTTPException, Query, Body, status
-from schema import UserSignupRequest, UserResponse
+from schema import UserSignupRequest, UserResponse, UserUpdateRequest
+from sqlalchemy import select
 from typing import List, Optional
-
+from db_connection import SessionFactory
+from models import User
 
 users =[
     {"id": 1, "name": "John Doe", "age": 30},
@@ -12,12 +14,12 @@ users =[
 
 app = FastAPI()
 
-@app.get("/hello")
-def root_handler():
-    return hello_world()
+# @app.get("/hello")
+# def root_handler():
+#     return hello_world()
 
-def hello_world():
-    return {"message": "Hello World"}
+# def hello_world():
+#     return {"message": "Hello World"}
 
 @app.get(
     "/users", 
@@ -25,6 +27,10 @@ def hello_world():
     status_code=status.HTTP_200_OK
 )
 def get_users():
+    with SessionFactory() as session:
+        stmt = select(User)
+        results = session.execute(stmt)
+        users = results.scalars().all()
     return users
 
 # 3. 회원 검색 API (Query Parameter 활용)
@@ -60,12 +66,23 @@ response_model = UserResponse,
           description="Create a new user")
 
 def signup_handler(body: UserSignupRequest):
-    new_user = {
-        "id": len(users) + 1,
-        "name": body.name,
-        "age": body.age
-    }
-    users.append(new_user)
+    new_user = User(name=body.name, age=body.age)
+
+    with SessionFactory() as session:
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user)  # 새로 생성된 객체의 ID를 가져오기 위해
+    # session = SessionFactory()
+    # session.add(new_user)
+    # session.commit()
+    # session.refresh(new_user)  # 새로 생성된 객체의 ID를 가져오기 위해
+    # session.close()
+    # new_user = {
+    #     "id": len(users) + 1,
+    #     "name": body.name,
+    #     "age": body.age
+    # }
+    # users.append(new_user)
     return new_user
 
 
@@ -126,3 +143,12 @@ def get_item(item_name: str = Path(..., max_length=6, description="The name of t
             return item
     return {"message": "Item not found"}
 
+
+@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_handler(user_id: int = Path(..., ge=1, description="삭제할 사용자의 ID")):
+    global users
+    user = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    users = [u for u in users if u["id"] != user_id]
+    return None
